@@ -106,29 +106,75 @@ export default function Home() {
     setDownloadState({ status: "downloading", progress: 0 });
 
     try {
-      const response = await fetch("/api/download", {
+      // Start download
+      const startResponse = await fetch("/api/download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url, quality: selectedQuality }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Download failed");
+      if (!startResponse.ok) {
+        const errorData = await startResponse.json();
+        throw new Error(errorData.error || "Failed to start download");
       }
 
-      const blob = await response.blob();
-      const downloadUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = downloadUrl;
-      a.download = `download.${selectedQuality === "audio" ? "mp3" : "mp4"}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(downloadUrl);
+      const { id } = await startResponse.json();
 
-      setDownloadState({ status: "completed", progress: 100 });
-      toast.success("Download completed successfully!");
+      // Poll for progress
+      const pollProgress = async () => {
+        try {
+          const progressResponse = await fetch(
+            `/api/download?action=progress&id=${id}`
+          );
+          if (!progressResponse.ok) {
+            throw new Error("Failed to get progress");
+          }
+
+          const progressData = await progressResponse.json();
+
+          if (progressData.status === "completed") {
+            // Download the file
+            const fileResponse = await fetch(
+              `/api/download?action=file&id=${id}`
+            );
+            if (!fileResponse.ok) {
+              throw new Error("Failed to download file");
+            }
+
+            const blob = await fileResponse.blob();
+            const downloadUrl = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = downloadUrl;
+            a.download = `download.${
+              selectedQuality === "audio" ? "mp3" : "mp4"
+            }`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(downloadUrl);
+
+            setDownloadState({ status: "completed", progress: 100 });
+            toast.success("Download completed successfully!");
+          } else if (progressData.status === "error") {
+            throw new Error(progressData.error || "Download failed");
+          } else {
+            setDownloadState({
+              status: "downloading",
+              progress: progressData.progress,
+            });
+            setTimeout(pollProgress, 1000); // Poll again in 1 second
+          }
+        } catch (error: any) {
+          setDownloadState({
+            status: "error",
+            progress: 0,
+            error: error.message,
+          });
+          toast.error(error.message);
+        }
+      };
+
+      pollProgress();
     } catch (error: any) {
       setDownloadState({ status: "error", progress: 0, error: error.message });
       toast.error(error.message);
@@ -298,7 +344,13 @@ export default function Home() {
 
                 {downloadState.status === "downloading" && (
                   <div className="space-y-2">
-                    <div className="text-sm text-slate-600">Downloading...</div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-600">Downloading...</span>
+                      <span className="font-semibold text-blue-600">
+                        {downloadState.progress.toFixed(1)}%
+                      </span>
+                    </div>
+                    <Progress value={downloadState.progress} className="h-2" />
                   </div>
                 )}
 

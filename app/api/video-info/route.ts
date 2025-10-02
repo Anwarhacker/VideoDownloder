@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const command = `yt-dlp --dump-json --no-playlist "${url}"`;
+    const command = `c:\\Dev-projects\\videoDownloader\\project\\yt-dlp.exe --dump-json --no-playlist "${url}"`;
 
     const { stdout, stderr } = await execPromise(command, {
       timeout: 30000,
