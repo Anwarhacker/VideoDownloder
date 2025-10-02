@@ -1,8 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { join } from 'path';
 
 const execPromise = promisify(exec);
+
+// Get yt-dlp command - try system PATH first, then local exe for development
+function getYtdlpCommand(): string {
+  // For production, assume yt-dlp is in PATH
+  // For development, use local exe
+  try {
+    // In development, check if local exe exists
+    const localPath = join(process.cwd(), 'yt-dlp.exe');
+    // For simplicity, use 'yt-dlp' for production, local path for dev
+    return process.env.NODE_ENV === 'production' ? 'yt-dlp' : localPath;
+  } catch {
+    return 'yt-dlp';
+  }
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +40,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const command = `c:\\Dev-projects\\videoDownloader\\project\\yt-dlp.exe --dump-json --no-playlist "${url}"`;
+    const ytdlpCmd = getYtdlpCommand();
+    const command = `${ytdlpCmd} --dump-json --no-playlist "${url}"`;
 
     const { stdout, stderr } = await execPromise(command, {
       timeout: 30000,

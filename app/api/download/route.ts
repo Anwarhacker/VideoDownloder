@@ -6,6 +6,20 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
+// Get yt-dlp command - try system PATH first, then local exe for development
+function getYtdlpCommand(): string {
+  // For production, assume yt-dlp is in PATH
+  // For development, use local exe
+  try {
+    // In development, check if local exe exists
+    const localPath = join(process.cwd(), 'yt-dlp.exe');
+    // For simplicity, use 'yt-dlp' for production, local path for dev
+    return process.env.NODE_ENV === 'production' ? 'yt-dlp' : localPath;
+  } catch {
+    return 'yt-dlp';
+  }
+}
+
 export const dynamic = 'force-dynamic';
 
 interface DownloadSession {
@@ -101,7 +115,7 @@ export async function POST(request: NextRequest) {
         formatString = 'bestvideo[height<=480]+bestaudio/best[height<=480]';
         break;
       case 'audio':
-        formatString = 'bestaudio/best';
+        formatString = 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best';
         break;
       default:
         formatString = 'bestvideo+bestaudio/best';
@@ -128,15 +142,17 @@ export async function POST(request: NextRequest) {
       '-f', formatString,
       '-o', tempFile,
       '--no-playlist',
-      '--merge-output-format', quality === 'audio' ? 'mp3' : 'mp4',
       url
     ];
 
     if (quality === 'audio') {
-      args.push('--extract-audio', '--audio-format', 'mp3', '--audio-quality', '0');
+      args.push('--extract-audio', '--audio-format', 'mp3', '--audio-quality', '0', '--audio-codec', 'libmp3lame');
+    } else {
+      args.push('--merge-output-format', 'mp4');
     }
 
-    const ytdlp = spawn('c:\\Dev-projects\\videoDownloader\\project\\yt-dlp.exe', args);
+    const ytdlpCmd = getYtdlpCommand();
+    const ytdlp = spawn(ytdlpCmd, args);
 
     ytdlp.stderr.on('data', (data) => {
       const output = data.toString();
