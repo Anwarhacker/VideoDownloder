@@ -224,19 +224,19 @@ export async function POST(request: NextRequest) {
 
     switch (quality) {
       case '2160p':
-        formatString = 'best[height<=2160]';
+        formatString = 'bestvideo[height<=2160]+bestaudio/best[height<=2160]';
         break;
       case '1440p':
-        formatString = 'best[height<=1440]';
+        formatString = 'bestvideo[height<=1440]+bestaudio/best[height<=1440]';
         break;
       case '1080p':
-        formatString = 'best[height<=1080]';
+        formatString = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]';
         break;
       case '720p':
-        formatString = 'best[height<=720]';
+        formatString = 'bestvideo[height<=720]+bestaudio/best[height<=720]';
         break;
       case '480p':
-        formatString = 'best[height<=480]';
+        formatString = 'bestvideo[height<=480]+bestaudio/best[height<=480]';
         break;
       case 'audio':
         formatString = 'bestaudio/best';
@@ -300,6 +300,12 @@ export async function POST(request: NextRequest) {
     // Execute from temp directory to prevent path issues
     const ytdlp = spawn(ytdlpCmd, args, { cwd: tempDir });
 
+    // Timeout to kill yt-dlp if it takes too long (30 minutes)
+    const downloadTimeout = setTimeout(() => {
+      console.log('Download timeout reached, killing yt-dlp process');
+      ytdlp.kill();
+    }, 30 * 60 * 1000);
+
     // Progress simulation timer for fallback
     let progressTimer: NodeJS.Timeout | null = null;
     let lastRealProgress = 0;
@@ -338,15 +344,15 @@ export async function POST(request: NextRequest) {
     // Start simulation after a short delay
     setTimeout(startProgressSimulation, 2000);
 
-    ytdlp.stderr.on('data', async (data) => {
-      const output = data.toString();
-      console.log('yt-dlp stderr:', output.trim()); // Debug logging
-
+    const parseProgress = async (output: string) => {
       try {
         let newProgress = session.progress;
 
         // Try multiple regex patterns for progress with more comprehensive matching
         let progressMatch = output.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
+        if (!progressMatch) {
+          progressMatch = output.match(/\[download\]\s+(\d+(?:\.\d+)?)%\s+of/);
+        }
         if (!progressMatch) {
           progressMatch = output.match(/(\d+(?:\.\d+)?)%\s+of/);
         }
@@ -408,14 +414,38 @@ export async function POST(request: NextRequest) {
           console.log('Forced completion progress to 100%');
         }
 
+        // Also force completion when download completes
+        if (output.includes('[download] 100%') && output.includes('in ')) {
+          await DownloadSession.updateOne(
+            { sessionId },
+            { progress: 100 }
+          );
+          console.log('Download 100% detected, setting progress to 100%');
+        }
+
       } catch (error) {
         console.error('Error updating progress:', error);
       }
+    };
+
+    ytdlp.stdout.on('data', async (data) => {
+      const output = data.toString();
+      console.log('yt-dlp stdout:', output.trim()); // Debug logging
+      await parseProgress(output);
+    });
+
+    ytdlp.stderr.on('data', async (data) => {
+      const output = data.toString();
+      console.log('yt-dlp stderr:', output.trim()); // Debug logging
+      await parseProgress(output);
     });
 
     ytdlp.on('close', async (code) => {
       try {
         console.log('yt-dlp process closed with code:', code);
+
+        // Clear timeout
+        clearTimeout(downloadTimeout);
 
         // Clean up progress timer
         if (progressTimer) {
@@ -438,7 +468,7 @@ export async function POST(request: NextRequest) {
           console.log('Output file size:', (stats as any).size, 'bytes');
         }
 
-        if (code === 0 && fileExists) {
+        if ((code === 0 || code === null) && fileExists) {
           await DownloadSession.updateOne(
             { sessionId },
             { status: 'completed', progress: 100 }
@@ -472,6 +502,9 @@ export async function POST(request: NextRequest) {
       try {
         console.log('yt-dlp spawn error:', error.message);
         console.log('Error details:', error);
+
+        // Clear timeout
+        clearTimeout(downloadTimeout);
 
         // Clean up progress timer
         if (progressTimer) {
