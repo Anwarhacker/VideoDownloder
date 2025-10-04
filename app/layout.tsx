@@ -1,13 +1,20 @@
-import './globals.css';
-import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
-import { Toaster } from '@/components/ui/sonner';
+import "./globals.css";
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import { Toaster } from "@/components/ui/sonner";
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'Video Downloader - Download from 200+ Platforms',
-  description: 'Download videos from YouTube, Vimeo, and 200+ platforms in high quality. Support for 4K, 1080p, 720p, and audio-only downloads.',
+  title: "Video Downloader - Download from 200+ Platforms",
+  description:
+    "Download videos from YouTube, Vimeo, and 200+ platforms in high quality. Support for 4K, 1080p, 720p, and audio-only downloads.",
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({

@@ -190,11 +190,11 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      <div className="container mx-auto px-4 py-8 max-w-5xl">
-        <div className="text-center mb-12 pt-8">
-          <div className="flex items-center justify-center mb-4">
-            <Video className="w-12 h-12 text-blue-600 mr-3" />
-            <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+      <div className="container mx-auto px-4 py-6 sm:py-8 max-w-5xl">
+        <div className="text-center mb-8 sm:mb-12 pt-4 sm:pt-8">
+          <div className="flex flex-col space-y-2 items-center justify-center mb-4">
+            <Video className="w-8 h-8 sm:w-12 sm:h-12 text-blue-600 mr-3" />
+            <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
               Video Downloader
             </h1>
           </div>
@@ -215,7 +215,7 @@ export default function Home() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-4">
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <Input
                   type="url"
                   placeholder="Paste video URL here (YouTube, Vimeo, etc.)"
@@ -226,7 +226,7 @@ export default function Home() {
                     downloadState.status === "fetching" ||
                     downloadState.status === "downloading"
                   }
-                  className="text-base h-12"
+                  className="text-base h-12 flex-1"
                 />
                 <Button
                   onClick={handleFetchInfo}
@@ -235,7 +235,7 @@ export default function Home() {
                     downloadState.status === "downloading"
                   }
                   size="lg"
-                  className="px-6 bg-blue-600 hover:bg-blue-700"
+                  className="px-6 bg-blue-600 hover:bg-blue-700 sm:w-auto w-full"
                 >
                   {downloadState.status === "fetching" ? (
                     <>
@@ -285,12 +285,12 @@ export default function Home() {
 
             {videoInfo && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="flex gap-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="flex flex-col sm:flex-row gap-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
                   {videoInfo.thumbnail && (
                     <img
                       src={videoInfo.thumbnail}
                       alt={videoInfo.title}
-                      className="w-48 h-32 object-cover rounded-md shadow-md"
+                      className="w-full sm:w-48 h-32 object-cover rounded-md shadow-md"
                     />
                   )}
                   <div className="flex-1 space-y-2">
@@ -363,7 +363,7 @@ export default function Home() {
                   </Alert>
                 )}
 
-                <div className="flex gap-3">
+                <div className="flex flex-col sm:flex-row gap-3">
                   <Button
                     onClick={handleDownload}
                     disabled={downloadState.status === "downloading"}
@@ -391,7 +391,7 @@ export default function Home() {
                     onClick={handleReset}
                     variant="outline"
                     size="lg"
-                    className="h-12"
+                    className="h-12 sm:w-auto w-full"
                   >
                     Reset
                   </Button>
@@ -401,7 +401,7 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="mt-8 sm:mt-12 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
           <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
             <CardHeader>
               <CardTitle className="text-lg">High Quality</CardTitle>
@@ -438,6 +438,18 @@ export default function Home() {
             </CardContent>
           </Card>
         </div>
+
+        <footer className="mt-12 text-center text-slate-500 text-sm border-t border-slate-200 pt-8">
+          <p>
+            Developed by Anwar Patel -{" "}
+            <a
+              href="mailto:patelanwar647@gmail.com"
+              className="text-blue-600 hover:text-blue-700"
+            >
+              patelanwar647@gmail.com
+            </a>
+          </p>
+        </footer>
       </div>
     </div>
   );
