@@ -5,6 +5,22 @@ import { createReadStream, unlinkSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
+import connectToDatabase from '@/lib/mongodb';
+import DownloadSession from '@/lib/models/DownloadSession';
+
+// Fallback in-memory storage for when MongoDB is not available
+interface FallbackSession {
+  id: string;
+  status: 'downloading' | 'completed' | 'error';
+  progress: number;
+  error?: string;
+  tempFile?: string;
+  contentType: string;
+  filename: string;
+}
+
+const fallbackSessions = new Map<string, FallbackSession>();
+let useMongoDB = true; // Flag to track if we're using MongoDB or fallback
 
 // Get yt-dlp command - try system PATH first, then local exe for development
 function getYtdlpCommand(): string {
@@ -22,71 +38,81 @@ function getYtdlpCommand(): string {
 
 export const dynamic = 'force-dynamic';
 
-interface DownloadSession {
-  id: string;
-  status: 'downloading' | 'completed' | 'error';
-  progress: number;
-  error?: string;
-  tempFile?: string;
-  contentType: string;
-  filename: string;
-}
-
-const downloadSessions = new Map<string, DownloadSession>();
-
 export async function GET(request: NextRequest) {
-  const { searchParams } = request.nextUrl;
-  const id = searchParams.get('id');
-  const action = searchParams.get('action');
+  try {
+    const db = await connectToDatabase();
+    const isMongoDBAvailable = db !== null;
 
-  if (!id) {
-    return NextResponse.json({ error: 'ID required' }, { status: 400 });
-  }
+    const { searchParams } = request.nextUrl;
+    const id = searchParams.get('id');
+    const action = searchParams.get('action');
 
-  const session = downloadSessions.get(id);
-  if (!session) {
-    return NextResponse.json({ error: 'Session not found' }, { status: 404 });
-  }
-
-  if (action === 'progress') {
-    return NextResponse.json({
-      status: session.status,
-      progress: session.progress,
-      error: session.error,
-    });
-  }
-
-  if (action === 'file') {
-    if (session.status !== 'completed' || !session.tempFile) {
-      return NextResponse.json({ error: 'Download not ready' }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: 'ID required' }, { status: 400 });
     }
 
-    const fileStream = createReadStream(session.tempFile);
+    let session: any = null;
 
-    // Clean up after streaming
-    fileStream.on('end', () => {
-      try {
-        unlinkSync(session.tempFile!);
-        downloadSessions.delete(id);
-      } catch (err) {
-        console.error('Failed to clean up:', err);
+    if (isMongoDBAvailable) {
+      session = await DownloadSession.findOne({ sessionId: id });
+    } else {
+      session = fallbackSessions.get(id);
+    }
+
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    if (action === 'progress') {
+      return NextResponse.json({
+        status: session.status,
+        progress: session.progress,
+        error: session.error,
+      });
+    }
+
+    if (action === 'file') {
+      if (session.status !== 'completed' || !session.tempFile) {
+        return NextResponse.json({ error: 'Download not ready' }, { status: 400 });
       }
-    });
 
-    return new NextResponse(Readable.toWeb(fileStream) as any, {
-      headers: {
-        'Content-Type': session.contentType,
-        'Content-Disposition': `attachment; filename="${session.filename}"`,
-        'Cache-Control': 'no-cache',
-      },
-    });
+      const fileStream = createReadStream(session.tempFile);
+
+      // Clean up after streaming
+      fileStream.on('end', async () => {
+        try {
+          unlinkSync(session.tempFile!);
+          if (isMongoDBAvailable) {
+            await DownloadSession.deleteOne({ sessionId: id });
+          } else {
+            fallbackSessions.delete(id);
+          }
+        } catch (err) {
+          console.error('Failed to clean up:', err);
+        }
+      });
+
+      return new NextResponse(Readable.toWeb(fileStream) as any, {
+        headers: {
+          'Content-Type': session.contentType,
+          'Content-Disposition': `attachment; filename="${session.filename}"`,
+          'Cache-Control': 'no-cache',
+        },
+      });
+    }
+
+    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+  } catch (error) {
+    console.error('GET error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
-
-  return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
 }
 
 export async function POST(request: NextRequest) {
   try {
+    const db = await connectToDatabase();
+    const isMongoDBAvailable = db !== null;
+
     const { url, quality } = await request.json();
 
     if (!url || !quality) {
@@ -127,16 +153,31 @@ export async function POST(request: NextRequest) {
     const tempFile = join(tmpdir(), `download-${randomUUID()}.${fileExtension}`);
 
     const sessionId = randomUUID();
-    const session: DownloadSession = {
-      id: sessionId,
-      status: 'downloading',
-      progress: 0,
-      contentType,
-      filename,
-      tempFile,
-    };
 
-    downloadSessions.set(sessionId, session);
+    // Create session in MongoDB or fallback storage
+    let session: any;
+    if (isMongoDBAvailable) {
+      session = await DownloadSession.create({
+        sessionId,
+        url,
+        quality,
+        status: 'downloading',
+        progress: 0,
+        contentType,
+        filename,
+        tempFile,
+      });
+    } else {
+      session = {
+        id: sessionId,
+        status: 'downloading',
+        progress: 0,
+        contentType,
+        filename,
+        tempFile,
+      };
+      fallbackSessions.set(sessionId, session);
+    }
 
     const args = [
       '-f', formatString,
@@ -154,52 +195,200 @@ export async function POST(request: NextRequest) {
     const ytdlpCmd = getYtdlpCommand();
     const ytdlp = spawn(ytdlpCmd, args);
 
-    ytdlp.stderr.on('data', (data) => {
-      const output = data.toString();
-      console.log('yt-dlp output:', output); // Debug logging
+    // Progress simulation timer for fallback
+    let progressTimer: NodeJS.Timeout | null = null;
+    let lastRealProgress = 0;
+    let simulationStep = 0;
 
-      // Try multiple regex patterns for progress
-      let progressMatch = output.match(/\[download\]\s*(\d+(?:\.\d+)?)%/);
-      if (!progressMatch) {
-        progressMatch = output.match(/(\d+(?:\.\d+)?)%/);
-      }
-      if (!progressMatch) {
-        progressMatch = output.match(/(\d+)%/);
-      }
-      if (!progressMatch) {
-        // Try alternative patterns
-        progressMatch = output.match(/(\d+(?:\.\d+)?)% of/);
-      }
+    const startProgressSimulation = () => {
+      if (progressTimer) return; // Already running
 
-      if (progressMatch) {
-        const newProgress = parseFloat(progressMatch[1]);
-        if (newProgress > session.progress) {
-          session.progress = Math.min(newProgress, 100);
-          console.log('Progress updated:', session.progress); // Debug logging
+      progressTimer = setInterval(async () => {
+        try {
+          // Only simulate if we haven't seen real progress recently
+          const timeSinceLastProgress = Date.now() - lastRealProgress;
+          if (timeSinceLastProgress > 5000) { // 5 seconds without real progress
+            simulationStep++;
+            let simulatedProgress = session.progress;
+
+            if (simulationStep === 1 && simulatedProgress < 25) simulatedProgress = 25;
+            else if (simulationStep === 2 && simulatedProgress < 50) simulatedProgress = 50;
+            else if (simulationStep === 3 && simulatedProgress < 75) simulatedProgress = 75;
+            else if (simulationStep >= 4 && simulatedProgress < 90) simulatedProgress = 90;
+
+            if (simulatedProgress > session.progress) {
+              if (isMongoDBAvailable) {
+                await DownloadSession.updateOne(
+                  { sessionId },
+                  { progress: simulatedProgress }
+                );
+              } else {
+                session.progress = simulatedProgress;
+              }
+              console.log('Simulated progress:', simulatedProgress);
+            }
+          }
+        } catch (error) {
+          console.error('Error in progress simulation:', error);
         }
-      }
+      }, 2000); // Update every 2 seconds
+    };
 
-      // Also check for completion indicators
-      if (output.includes('100%') || output.includes('has already been downloaded') || output.includes('Merging formats')) {
-        session.progress = 100;
-      }
+    // Start simulation after a short delay
+    setTimeout(startProgressSimulation, 2000);
 
-      // Handle different progress formats
-      if (output.includes('Downloading video info') && session.progress === 0) {
-        session.progress = 5;
-      }
-      if (output.includes('Extracting URL') && session.progress < 10) {
-        session.progress = 10;
+    ytdlp.stderr.on('data', async (data) => {
+      const output = data.toString();
+      console.log('yt-dlp stderr:', output.trim()); // Debug logging
+
+      try {
+        let newProgress = session.progress;
+
+        // Try multiple regex patterns for progress with more comprehensive matching
+        let progressMatch = output.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
+        if (!progressMatch) {
+          progressMatch = output.match(/(\d+(?:\.\d+)?)%\s+of/);
+        }
+        if (!progressMatch) {
+          progressMatch = output.match(/(\d+(?:\.\d+)?)%/);
+        }
+        if (!progressMatch) {
+          progressMatch = output.match(/(\d+)%/);
+        }
+
+        if (progressMatch) {
+          newProgress = Math.max(newProgress, parseFloat(progressMatch[1]));
+          console.log('Progress match found:', newProgress);
+        }
+
+        // Check for specific yt-dlp progress indicators
+        if (output.includes('[download]') && output.includes('Destination:')) {
+          newProgress = Math.max(newProgress, 5);
+        }
+        if (output.includes('[download]') && output.includes('100%')) {
+          newProgress = 100;
+        }
+        if (output.includes('has already been downloaded')) {
+          newProgress = 100;
+        }
+
+        // Simulate progress if no real progress detected
+        if (newProgress === session.progress && output.includes('[download]')) {
+          // If we see download activity but no percentage, increment gradually
+          if (session.progress < 10) newProgress = 10;
+          else if (session.progress < 25) newProgress = 25;
+          else if (session.progress < 50) newProgress = 50;
+          else if (session.progress < 75) newProgress = 75;
+          else if (session.progress < 100) newProgress = 90;
+        }
+
+        // Update progress if it changed
+        if (newProgress !== session.progress) {
+          newProgress = Math.min(newProgress, 100);
+
+          if (isMongoDBAvailable) {
+            await DownloadSession.updateOne(
+              { sessionId },
+              { progress: newProgress }
+            );
+          } else {
+            session.progress = newProgress;
+          }
+
+          // Reset simulation timer since we got real progress
+          lastRealProgress = Date.now();
+          simulationStep = 0;
+
+          console.log('Real progress updated to:', newProgress);
+        }
+
+        // Force completion on certain outputs
+        if (output.includes('Merging formats') || output.includes('Deleting original file')) {
+          if (isMongoDBAvailable) {
+            await DownloadSession.updateOne(
+              { sessionId },
+              { progress: 100 }
+            );
+          } else {
+            session.progress = 100;
+          }
+          console.log('Forced completion progress to 100%');
+        }
+
+      } catch (error) {
+        console.error('Error updating progress:', error);
       }
     });
 
-    ytdlp.on('close', (code) => {
-      if (code === 0) {
-        session.status = 'completed';
-      } else {
-        session.status = 'error';
-        session.error = `Download failed with code ${code}`;
-        // Clean up temp file
+    ytdlp.on('close', async (code) => {
+      try {
+        // Clean up progress timer
+        if (progressTimer) {
+          clearInterval(progressTimer);
+          progressTimer = null;
+        }
+
+        if (code === 0) {
+          if (isMongoDBAvailable) {
+            await DownloadSession.updateOne(
+              { sessionId },
+              { status: 'completed', progress: 100 }
+            );
+          } else {
+            session.status = 'completed';
+            session.progress = 100;
+          }
+          console.log('Download completed successfully');
+        } else {
+          const errorMsg = `Download failed with code ${code}`;
+          if (isMongoDBAvailable) {
+            await DownloadSession.updateOne(
+              { sessionId },
+              {
+                status: 'error',
+                error: errorMsg
+              }
+            );
+          } else {
+            session.status = 'error';
+            session.error = errorMsg;
+          }
+          console.log('Download failed:', errorMsg);
+          // Clean up temp file
+          if (existsSync(tempFile)) {
+            try {
+              unlinkSync(tempFile);
+            } catch (err) {
+              console.error('Failed to clean up temp file on error:', err);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error updating session status:', error);
+      }
+    });
+
+    ytdlp.on('error', async (error) => {
+      try {
+        // Clean up progress timer
+        if (progressTimer) {
+          clearInterval(progressTimer);
+          progressTimer = null;
+        }
+
+        console.log('yt-dlp spawn error:', error.message);
+        if (isMongoDBAvailable) {
+          await DownloadSession.updateOne(
+            { sessionId },
+            {
+              status: 'error',
+              error: error.message
+            }
+          );
+        } else {
+          session.status = 'error';
+          session.error = error.message;
+        }
         if (existsSync(tempFile)) {
           try {
             unlinkSync(tempFile);
@@ -207,18 +396,8 @@ export async function POST(request: NextRequest) {
             console.error('Failed to clean up temp file on error:', err);
           }
         }
-      }
-    });
-
-    ytdlp.on('error', (error) => {
-      session.status = 'error';
-      session.error = error.message;
-      if (existsSync(tempFile)) {
-        try {
-          unlinkSync(tempFile);
-        } catch (err) {
-          console.error('Failed to clean up temp file on error:', err);
-        }
+      } catch (updateError) {
+        console.error('Error updating session on spawn error:', updateError);
       }
     });
 
