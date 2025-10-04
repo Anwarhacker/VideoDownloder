@@ -142,6 +142,7 @@ export async function POST(request: NextRequest) {
 
     // Get video info to check file size
     const ytdlpCmdInfo = getYtdlpCommand();
+    console.log('Getting video info with command:', ytdlpCmdInfo);
 
     const videoInfo = await new Promise((resolve, reject) => {
       const child = spawn(ytdlpCmdInfo, ['--dump-json', '--no-playlist', url], {
@@ -160,21 +161,28 @@ export async function POST(request: NextRequest) {
       });
 
       child.on('close', (code) => {
+        console.log('Video info process closed with code:', code);
         if (code === 0 && stdout) {
           try {
             resolve(JSON.parse(stdout));
           } catch (e) {
+            console.error('Failed to parse video info JSON:', e);
             reject(new Error('Failed to parse video info'));
           }
         } else {
-          reject(new Error(stderr || 'Failed to get video info'));
+          console.error('Video info failed - stderr:', stderr);
+          reject(new Error(stderr || `Failed to get video info (exit code: ${code})`));
         }
       });
 
-      child.on('error', reject);
+      child.on('error', (error) => {
+        console.error('Video info spawn error:', error);
+        reject(error);
+      });
 
       // Timeout after 30 seconds
       setTimeout(() => {
+        console.log('Video info request timed out, killing process');
         child.kill();
         reject(new Error('Video info request timed out'));
       }, 30000);
@@ -280,7 +288,7 @@ export async function POST(request: NextRequest) {
       '-f',
       formatString,
       '-o',
-      tempBaseName, // Use base name without extension so yt-dlp can choose appropriate extension
+      tempFile, // Use full path for output
       '--no-playlist',
       url,
     ];
@@ -291,14 +299,14 @@ export async function POST(request: NextRequest) {
 
     const ytdlpCmd = getYtdlpCommand();
     console.log('Starting yt-dlp with command:', ytdlpCmd, args.join(' '));
-    console.log('Working directory:', tempDir);
     console.log('Output file will be:', tempFile);
 
     // Small delay to ensure session is saved
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    // Execute from temp directory to prevent path issues
-    const ytdlp = spawn(ytdlpCmd, args, { cwd: tempDir });
+    // Execute in current directory (don't change cwd in containers)
+    console.log('Spawning yt-dlp process...');
+    const ytdlp = spawn(ytdlpCmd, args);
 
     // Timeout to kill yt-dlp if it takes too long (30 minutes)
     const downloadTimeout = setTimeout(() => {
@@ -457,12 +465,17 @@ export async function POST(request: NextRequest) {
         let actualTempFile = tempFile;
         const fs = require('fs');
 
-        // List files in temp directory that start with our base name
-        const files = fs.readdirSync(tempDir).filter((file: string) => file.startsWith(tempBaseName));
-        if (files.length > 0) {
-          // Use the first matching file (should be the output file)
-          actualTempFile = join(tempDir, files[0]);
-          console.log('Found output file:', actualTempFile);
+        // First check if the expected file exists
+        if (existsSync(tempFile)) {
+          actualTempFile = tempFile;
+        } else {
+          // Look for files in temp directory that start with our base name
+          const files = fs.readdirSync(tempDir).filter((file: string) => file.startsWith(tempBaseName));
+          if (files.length > 0) {
+            // Use the first matching file (should be the output file)
+            actualTempFile = join(tempDir, files[0]);
+            console.log('Found output file:', actualTempFile);
+          }
         }
 
         const fileExists = existsSync(actualTempFile);
@@ -532,14 +545,18 @@ export async function POST(request: NextRequest) {
         );
         // Clean up any temp files with the base name
         const fs = require('fs');
-        const files = fs.readdirSync(tempDir).filter((file: string) => file.startsWith(tempBaseName));
-        for (const file of files) {
-          try {
-            unlinkSync(join(tempDir, file));
-            console.log('Cleaned up temp file due to spawn error:', file);
-          } catch (err) {
-            console.error('Failed to clean up temp file on error:', err);
+        try {
+          const files = fs.readdirSync(tempDir).filter((file: string) => file.startsWith(tempBaseName));
+          for (const file of files) {
+            try {
+              unlinkSync(join(tempDir, file));
+              console.log('Cleaned up temp file due to spawn error:', file);
+            } catch (err) {
+              console.error('Failed to clean up temp file on error:', err);
+            }
           }
+        } catch (err) {
+          console.error('Failed to read temp directory for cleanup:', err);
         }
       } catch (updateError) {
         console.error('Error updating session on spawn error:', updateError);
