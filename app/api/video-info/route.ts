@@ -2,21 +2,28 @@ import { NextRequest, NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { join } from 'path';
+import { existsSync } from 'fs';
 
 const execPromise = promisify(exec);
 
 // Get yt-dlp command - try system PATH first, then local exe for development
 function getYtdlpCommand(): string {
-  // For production, assume yt-dlp is in PATH
-  // For development, use local exe
-  try {
-    // In development, check if local exe exists
-    const localPath = join(process.cwd(), 'yt-dlp.exe');
-    // For simplicity, use 'yt-dlp' for production, local path for dev
-    return process.env.NODE_ENV === 'production' ? 'yt-dlp' : localPath;
-  } catch {
-    return 'yt-dlp';
+  // For development, check for a local executable first
+  if (process.env.NODE_ENV !== 'production') {
+    const localPathExe = join(process.cwd(), 'yt-dlp.exe');
+    if (existsSync(localPathExe)) {
+      console.log('Using local yt-dlp.exe');
+      return localPathExe;
+    }
+    const localPath = join(process.cwd(), 'yt-dlp');
+    if (existsSync(localPath)) {
+      console.log('Using local yt-dlp');
+      return localPath;
+    }
   }
+  // For production or if local executable is not found, assume it's in the PATH
+  console.log('Using yt-dlp from PATH');
+  return 'yt-dlp';
 }
 
 export const dynamic = 'force-dynamic';

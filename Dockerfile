@@ -1,14 +1,14 @@
 FROM node:18-alpine
 
-# Install yt-dlp and ffmpeg
+# Install dependencies
 RUN apk add --no-cache \
-    yt-dlp \
     ffmpeg \
     python3 \
-    py3-pip
+    wget
 
-# Install yt-dlp Python dependencies if needed
-RUN pip3 install --break-system-packages yt-dlp
+# Install the latest version of yt-dlp
+RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && \
+    chmod a+rx /usr/local/bin/yt-dlp
 
 WORKDIR /app
 
