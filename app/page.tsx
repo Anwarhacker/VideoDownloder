@@ -162,7 +162,7 @@ export default function Home() {
               status: "downloading",
               progress: progressData.progress,
             });
-            setTimeout(pollProgress, 1000); // Poll again in 1 second
+            setTimeout(pollProgress, 500); // Poll again in 0.5 seconds for more responsive updates
           }
         } catch (error: any) {
           setDownloadState({
@@ -189,28 +189,40 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      <div className="container mx-auto px-4 py-6 sm:py-8 max-w-5xl">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-cyan-50/50 relative overflow-hidden">
+      {/* Background decorative elements */}
+      <div className="absolute inset-0 bg-gradient-to-r from-blue-100/20 via-transparent to-cyan-100/20"></div>
+      <div className="absolute top-20 left-10 w-32 h-32 bg-blue-200/30 rounded-full blur-3xl animate-pulse"></div>
+      <div className="absolute top-40 right-20 w-24 h-24 bg-cyan-200/30 rounded-full blur-2xl animate-pulse delay-1000"></div>
+
+      <div className="container mx-auto px-4 py-6 sm:py-8 max-w-5xl relative z-10">
         <div className="text-center mb-8 sm:mb-12 pt-4 sm:pt-8">
-          <div className="flex flex-col space-y-2 items-center justify-center mb-4">
-            <Video className="w-8 h-8 sm:w-12 sm:h-12 text-blue-600 mr-3" />
-            <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+          <div className="flex flex-col space-y-4 items-center justify-center mb-6 animate-in fade-in slide-in-from-top-4 duration-700">
+            <div className="relative group">
+              <div className="absolute -inset-4 bg-gradient-to-r from-blue-400/20 to-cyan-400/20 rounded-full blur-lg group-hover:blur-xl transition-all duration-300"></div>
+              <Video className="w-12 h-12 sm:w-16 sm:h-16 text-blue-600 relative z-10 drop-shadow-lg group-hover:scale-110 transition-transform duration-300" />
+            </div>
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold bg-gradient-to-r from-blue-600 via-cyan-600 to-teal-600 bg-clip-text text-transparent animate-in fade-in slide-in-from-bottom-4 duration-700 delay-200 hover:scale-105 transition-transform duration-300">
               Video Downloader
             </h1>
           </div>
-          <p className="text-slate-600 text-lg">
-            Download videos from YouTube, Vimeo, and many more platforms
+          <p className="text-slate-600 text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed animate-in fade-in duration-700 delay-400">
+            Download videos from YouTube, Vimeo, and many more platforms with
+            lightning-fast speed and high quality
           </p>
         </div>
 
-        <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle className="text-2xl flex items-center gap-2">
-              <Download className="w-6 h-6 text-blue-600" />
+        <Card className="shadow-2xl border-0 bg-white/90 backdrop-blur-md hover:shadow-3xl transition-all duration-300 hover:-translate-y-1 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-600">
+          <CardHeader className="bg-gradient-to-r from-blue-50/50 to-cyan-50/50 border-b border-slate-100/50">
+            <CardTitle className="text-2xl flex items-center gap-3 text-slate-800">
+              <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg shadow-lg">
+                <Download className="w-6 h-6 text-white" />
+              </div>
               Download Video
             </CardTitle>
-            <CardDescription>
-              Enter a video URL and select your preferred quality
+            <CardDescription className="text-slate-600 text-base">
+              Enter a video URL and select your preferred quality for instant
+              download
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -226,7 +238,7 @@ export default function Home() {
                     downloadState.status === "fetching" ||
                     downloadState.status === "downloading"
                   }
-                  className="text-base h-12 flex-1"
+                  className="text-base h-12 flex-1 border-slate-300 focus:border-blue-500 focus:ring-blue-500/20 shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <Button
                   onClick={handleFetchInfo}
@@ -235,12 +247,12 @@ export default function Home() {
                     downloadState.status === "downloading"
                   }
                   size="lg"
-                  className="px-6 bg-blue-600 hover:bg-blue-700 sm:w-auto w-full"
+                  className="px-6 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 sm:w-auto w-full disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                 >
                   {downloadState.status === "fetching" ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Loading
+                      Loading...
                     </>
                   ) : (
                     <>
@@ -277,38 +289,52 @@ export default function Home() {
             </div>
 
             {downloadState.status === "error" && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{downloadState.error}</AlertDescription>
+              <Alert
+                variant="destructive"
+                className="border-red-200 bg-red-50/50 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300"
+              >
+                <AlertCircle className="h-5 w-5" />
+                <AlertDescription className="text-red-800 font-medium">
+                  {downloadState.error}
+                </AlertDescription>
               </Alert>
             )}
 
             {videoInfo && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="flex flex-col sm:flex-row gap-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="flex flex-col sm:flex-row gap-6 p-6 bg-gradient-to-r from-slate-50 to-blue-50/50 rounded-xl border border-slate-200/50 shadow-sm hover:shadow-md transition-all duration-300">
                   {videoInfo.thumbnail && (
-                    <img
-                      src={videoInfo.thumbnail}
-                      alt={videoInfo.title}
-                      className="w-full sm:w-48 h-32 object-cover rounded-md shadow-md"
-                    />
+                    <div className="relative group">
+                      <img
+                        src={videoInfo.thumbnail}
+                        alt={videoInfo.title}
+                        className="w-full sm:w-48 h-32 object-cover rounded-lg shadow-lg group-hover:shadow-xl transition-all duration-300"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                    </div>
                   )}
-                  <div className="flex-1 space-y-2">
-                    <h3 className="font-semibold text-lg line-clamp-2">
+                  <div className="flex-1 space-y-3">
+                    <h3 className="font-semibold text-lg sm:text-xl line-clamp-2 text-slate-800 leading-tight">
                       {videoInfo.title}
                     </h3>
-                    <p className="text-sm text-slate-600">
+                    <p className="text-sm text-slate-600 font-medium">
                       {videoInfo.uploader}
                     </p>
-                    <div className="flex gap-4 text-sm text-slate-500">
-                      <span>{formatDuration(videoInfo.duration)}</span>
+                    <div className="flex flex-wrap gap-4 text-sm text-slate-500">
+                      <div className="flex items-center gap-1">
+                        <Video className="w-4 h-4" />
+                        <span>{formatDuration(videoInfo.duration)}</span>
+                      </div>
                       {videoInfo.estimatedSizes[selectedQuality] && (
-                        <span>
-                          ≈{" "}
-                          {formatFileSize(
-                            videoInfo.estimatedSizes[selectedQuality]
-                          )}
-                        </span>
+                        <div className="flex items-center gap-1">
+                          <Download className="w-4 h-4" />
+                          <span>
+                            ≈{" "}
+                            {formatFileSize(
+                              videoInfo.estimatedSizes[selectedQuality]
+                            )}
+                          </span>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -343,22 +369,55 @@ export default function Home() {
                 </div>
 
                 {downloadState.status === "downloading" && (
-                  <div className="space-y-2">
+                  <div className="space-y-3 p-4 bg-blue-50/50 rounded-lg border border-blue-200/50 animate-in fade-in duration-300">
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-600">Downloading...</span>
-                      <span className="font-semibold text-blue-600">
+                      <span className="text-slate-700 font-medium">
+                        {downloadState.progress < 25
+                          ? "Starting download..."
+                          : downloadState.progress < 50
+                          ? "Downloading..."
+                          : downloadState.progress < 75
+                          ? "Almost there..."
+                          : "Finalizing..."}
+                      </span>
+                      <span className="font-bold text-blue-600">
                         {downloadState.progress.toFixed(1)}%
                       </span>
                     </div>
-                    <Progress value={downloadState.progress} className="h-2" />
+                    <Progress
+                      value={downloadState.progress}
+                      className="h-3 bg-blue-100"
+                    />
+                    <div className="flex justify-center space-x-2">
+                      {[25, 50, 75, 100].map((milestone) => (
+                        <div
+                          key={milestone}
+                          className={`w-2 h-2 rounded-full transition-colors duration-300 ${
+                            downloadState.progress >= milestone
+                              ? "bg-blue-500"
+                              : "bg-blue-200"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500 text-center">
+                      {downloadState.progress < 25
+                        ? "Initializing download"
+                        : downloadState.progress < 50
+                        ? "Transferring data"
+                        : downloadState.progress < 75
+                        ? "Processing content"
+                        : "Completing download"}
+                    </p>
                   </div>
                 )}
 
                 {downloadState.status === "completed" && (
-                  <Alert className="bg-green-50 border-green-200">
-                    <CheckCircle2 className="h-4 w-4 text-green-600" />
-                    <AlertDescription className="text-green-800">
-                      Download completed! Check your downloads folder.
+                  <Alert className="bg-gradient-to-r from-green-50 to-emerald-50 border-green-200 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+                    <AlertDescription className="text-green-800 font-medium">
+                      Download completed successfully! Check your downloads
+                      folder.
                     </AlertDescription>
                   </Alert>
                 )}
@@ -368,7 +427,7 @@ export default function Home() {
                     onClick={handleDownload}
                     disabled={downloadState.status === "downloading"}
                     size="lg"
-                    className="flex-1 h-12 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700"
+                    className="flex-1 h-12  py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                   >
                     {downloadState.status === "downloading" ? (
                       <>
@@ -377,7 +436,7 @@ export default function Home() {
                       </>
                     ) : downloadState.status === "completed" ? (
                       <>
-                        <CheckCircle2 className="w-5 h-5 mr-2" />
+                        <CheckCircle2 className="w-5 h-5 mr-2 text-green-600" />
                         Download Complete
                       </>
                     ) : (
@@ -391,7 +450,7 @@ export default function Home() {
                     onClick={handleReset}
                     variant="outline"
                     size="lg"
-                    className="h-12 sm:w-auto w-full"
+                    className="h-12 sm:w-auto w-full border-slate-300 hover:border-blue-400 hover:bg-blue-50 transition-all duration-200 hover:shadow-md"
                   >
                     Reset
                   </Button>
@@ -402,38 +461,53 @@ export default function Home() {
         </Card>
 
         <div className="mt-8 sm:mt-12 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
-          <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="text-lg">High Quality</CardTitle>
+          <Card className="border-0 shadow-xl bg-white/90 backdrop-blur-md hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group animate-in fade-in slide-in-from-left-4 duration-500 delay-800">
+            <CardHeader className="pb-3">
+              <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300">
+                <Video className="w-6 h-6 text-white" />
+              </div>
+              <CardTitle className="text-lg text-slate-800 group-hover:text-blue-700 transition-colors">
+                High Quality
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-slate-600 leading-relaxed">
                 Download videos up to 4K resolution with the best available
-                quality
+                quality and crystal-clear audio
               </p>
             </CardContent>
           </Card>
 
-          <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="text-lg">Multiple Platforms</CardTitle>
+          <Card className="border-0 shadow-xl bg-white/90 backdrop-blur-md hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group animate-in fade-in slide-in-from-bottom-4 duration-500 delay-900">
+            <CardHeader className="pb-3">
+              <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-teal-500 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300">
+                <Download className="w-6 h-6 text-white" />
+              </div>
+              <CardTitle className="text-lg text-slate-800 group-hover:text-cyan-700 transition-colors">
+                Multiple Platforms
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-slate-600">
-                Support for YouTube, Vimeo, Dailymotion, TikTok, and 200+
-                platforms
+              <p className="text-sm text-slate-600 leading-relaxed">
+                Support for YouTube, Vimeo, Dailymotion, TikTok, Instagram, and
+                200+ platforms worldwide
               </p>
             </CardContent>
           </Card>
 
-          <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="text-lg">Fast & Secure</CardTitle>
+          <Card className="border-0 shadow-xl bg-white/90 backdrop-blur-md hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group animate-in fade-in slide-in-from-right-4 duration-500 delay-1000">
+            <CardHeader className="pb-3">
+              <div className="w-12 h-12 bg-gradient-to-r from-teal-500 to-green-500 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300">
+                <CheckCircle2 className="w-6 h-6 text-white" />
+              </div>
+              <CardTitle className="text-lg text-slate-800 group-hover:text-teal-700 transition-colors">
+                Fast & Secure
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-slate-600">
-                Lightning-fast downloads with secure processing and no data
-                storage
+              <p className="text-sm text-slate-600 leading-relaxed">
+                Lightning-fast downloads with secure processing, no data
+                storage, and complete privacy protection
               </p>
             </CardContent>
           </Card>

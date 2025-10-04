@@ -156,9 +156,40 @@ export async function POST(request: NextRequest) {
 
     ytdlp.stderr.on('data', (data) => {
       const output = data.toString();
-      const progressMatch = output.match(/\[download\]\s*(\d+(?:\.\d+)?)%/);
+      console.log('yt-dlp output:', output); // Debug logging
+
+      // Try multiple regex patterns for progress
+      let progressMatch = output.match(/\[download\]\s*(\d+(?:\.\d+)?)%/);
+      if (!progressMatch) {
+        progressMatch = output.match(/(\d+(?:\.\d+)?)%/);
+      }
+      if (!progressMatch) {
+        progressMatch = output.match(/(\d+)%/);
+      }
+      if (!progressMatch) {
+        // Try alternative patterns
+        progressMatch = output.match(/(\d+(?:\.\d+)?)% of/);
+      }
+
       if (progressMatch) {
-        session.progress = parseFloat(progressMatch[1]);
+        const newProgress = parseFloat(progressMatch[1]);
+        if (newProgress > session.progress) {
+          session.progress = Math.min(newProgress, 100);
+          console.log('Progress updated:', session.progress); // Debug logging
+        }
+      }
+
+      // Also check for completion indicators
+      if (output.includes('100%') || output.includes('has already been downloaded') || output.includes('Merging formats')) {
+        session.progress = 100;
+      }
+
+      // Handle different progress formats
+      if (output.includes('Downloading video info') && session.progress === 0) {
+        session.progress = 5;
+      }
+      if (output.includes('Extracting URL') && session.progress < 10) {
+        session.progress = 10;
       }
     });
 
