@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/videodownloader';
+const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
@@ -25,18 +25,19 @@ async function connectToDatabase() {
   if (!cached.promise) {
     const opts = {
       bufferCommands: false,
-      serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+      serverSelectionTimeoutMS: 10000, // Timeout after 10s for Atlas connection
       socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
+      maxPoolSize: 10, // Maintain up to 10 socket connections
+      family: 4, // Use IPv4, skip trying IPv6
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
-      console.log('✅ Connected to MongoDB successfully');
+    cached.promise = mongoose.connect(MONGODB_URI!, opts).then((mongoose) => {
+      console.log('✅ Connected to MongoDB Atlas successfully');
       return mongoose;
     }).catch((error) => {
-      console.warn('⚠️ MongoDB connection failed, falling back to in-memory storage:', error.message);
-      console.warn('💡 For full functionality, please ensure MongoDB is running or use MongoDB Atlas');
-      // Return null to indicate fallback mode
-      return null;
+      console.error('❌ MongoDB Atlas connection failed:', error.message);
+      console.error('💡 Please check your MongoDB Atlas connection string and network connectivity');
+      throw error; // Throw error instead of falling back to in-memory
     });
   }
 
@@ -44,8 +45,8 @@ async function connectToDatabase() {
     cached.conn = await cached.promise;
   } catch (e) {
     cached.promise = null;
-    console.warn('⚠️ MongoDB connection error:', e);
-    return null; // Return null for fallback mode
+    console.error('❌ MongoDB Atlas connection error:', e);
+    throw e; // Throw error instead of returning null
   }
 
   return cached.conn;

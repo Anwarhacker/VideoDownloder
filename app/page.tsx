@@ -333,10 +333,29 @@ export default function Home() {
                             {formatFileSize(
                               videoInfo.estimatedSizes[selectedQuality]
                             )}
+                            {videoInfo.estimatedSizes[selectedQuality] >
+                              500 * 1024 * 1024 && (
+                              <span className="ml-2 text-amber-600 font-medium">
+                                (Large file)
+                              </span>
+                            )}
                           </span>
                         </div>
                       )}
                     </div>
+                    {videoInfo.estimatedSizes[selectedQuality] >
+                      500 * 1024 * 1024 && (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                        <p className="text-sm text-amber-800">
+                          ⚠️ This is a large file (
+                          {formatFileSize(
+                            videoInfo.estimatedSizes[selectedQuality]
+                          )}
+                          ). Download may take several minutes depending on your
+                          connection speed.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -407,8 +426,16 @@ export default function Home() {
                         ? "Transferring data"
                         : downloadState.progress < 75
                         ? "Processing content"
-                        : "Completing download"}
+                        : downloadState.progress < 100
+                        ? "Completing download"
+                        : "Download completed!"}
                     </p>
+                    {videoInfo?.estimatedSizes[selectedQuality] >
+                      500 * 1024 * 1024 && (
+                      <p className="text-xs text-amber-600 text-center mt-2">
+                        Large file download in progress - please be patient
+                      </p>
+                    )}
                   </div>
                 )}
 

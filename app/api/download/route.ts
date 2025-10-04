@@ -8,19 +8,7 @@ import { randomUUID } from 'crypto';
 import connectToDatabase from '@/lib/mongodb';
 import DownloadSession from '@/lib/models/DownloadSession';
 
-// Fallback in-memory storage for when MongoDB is not available
-interface FallbackSession {
-  id: string;
-  status: 'downloading' | 'completed' | 'error';
-  progress: number;
-  error?: string;
-  tempFile?: string;
-  contentType: string;
-  filename: string;
-}
-
-const fallbackSessions = new Map<string, FallbackSession>();
-let useMongoDB = true; // Flag to track if we're using MongoDB or fallback
+// Using MongoDB Atlas for all data storage
 
 // Get yt-dlp command - try system PATH first, then local exe for development
 function getYtdlpCommand(): string {
@@ -38,10 +26,12 @@ function getYtdlpCommand(): string {
 
 export const dynamic = 'force-dynamic';
 
+// Increase timeout for large video downloads (5 minutes)
+export const maxDuration = 300;
+
 export async function GET(request: NextRequest) {
   try {
-    const db = await connectToDatabase();
-    const isMongoDBAvailable = db !== null;
+    await connectToDatabase(); // Will throw error if Atlas connection fails
 
     const { searchParams } = request.nextUrl;
     const id = searchParams.get('id');
@@ -51,13 +41,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'ID required' }, { status: 400 });
     }
 
-    let session: any = null;
-
-    if (isMongoDBAvailable) {
-      session = await DownloadSession.findOne({ sessionId: id });
-    } else {
-      session = fallbackSessions.get(id);
-    }
+    const session = await DownloadSession.findOne({ sessionId: id });
 
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
@@ -76,29 +60,58 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Download not ready' }, { status: 400 });
       }
 
-      const fileStream = createReadStream(session.tempFile);
+      try {
+        // Check if file exists and get its size
+        const stats = await new Promise((resolve, reject) => {
+          const fs = require('fs');
+          fs.stat(session.tempFile!, (err: any, stats: any) => {
+            if (err) reject(err);
+            else resolve(stats);
+          });
+        });
 
-      // Clean up after streaming
-      fileStream.on('end', async () => {
-        try {
-          unlinkSync(session.tempFile!);
-          if (isMongoDBAvailable) {
+        const fileSize = (stats as any).size;
+        console.log(`Streaming file: ${session.filename} (${Math.round(fileSize / (1024 * 1024))}MB)`);
+
+        // Create read stream with optimized chunk size for large files
+        const fileStream = createReadStream(session.tempFile, {
+          highWaterMark: 64 * 1024, // 64KB chunks to prevent memory issues
+        });
+
+        let bytesSent = 0;
+
+        // Clean up after streaming is complete
+        fileStream.on('end', async () => {
+          try {
+            console.log(`File streaming completed: ${session.filename}`);
+            unlinkSync(session.tempFile!);
             await DownloadSession.deleteOne({ sessionId: id });
-          } else {
-            fallbackSessions.delete(id);
+          } catch (err) {
+            console.error('Failed to clean up:', err);
           }
-        } catch (err) {
-          console.error('Failed to clean up:', err);
-        }
-      });
+        });
 
-      return new NextResponse(Readable.toWeb(fileStream) as any, {
-        headers: {
-          'Content-Type': session.contentType,
-          'Content-Disposition': `attachment; filename="${session.filename}"`,
-          'Cache-Control': 'no-cache',
-        },
-      });
+        fileStream.on('data', (chunk) => {
+          bytesSent += chunk.length;
+        });
+
+        fileStream.on('error', (error) => {
+          console.error('File streaming error:', error);
+        });
+
+        return new NextResponse(Readable.toWeb(fileStream) as any, {
+          headers: {
+            'Content-Type': session.contentType,
+            'Content-Disposition': `attachment; filename="${session.filename}"`,
+            'Content-Length': fileSize.toString(),
+            'Cache-Control': 'no-cache',
+            'Accept-Ranges': 'bytes',
+          },
+        });
+      } catch (error) {
+        console.error('File access error:', error);
+        return NextResponse.json({ error: 'File not found or inaccessible' }, { status: 404 });
+      }
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
@@ -110,8 +123,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const db = await connectToDatabase();
-    const isMongoDBAvailable = db !== null;
+    await connectToDatabase(); // Will throw error if Atlas connection fails
 
     const { url, quality } = await request.json();
 
@@ -120,6 +132,86 @@ export async function POST(request: NextRequest) {
         { error: 'URL and quality are required' },
         { status: 400 }
       );
+    }
+
+    // Get video info to check file size
+    const ytdlpCmdInfo = getYtdlpCommand();
+
+    const videoInfo = await new Promise((resolve, reject) => {
+      const child = spawn(ytdlpCmdInfo, ['--dump-json', '--no-playlist', url], {
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      child.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      child.on('close', (code) => {
+        if (code === 0 && stdout) {
+          try {
+            resolve(JSON.parse(stdout));
+          } catch (e) {
+            reject(new Error('Failed to parse video info'));
+          }
+        } else {
+          reject(new Error(stderr || 'Failed to get video info'));
+        }
+      });
+
+      child.on('error', reject);
+
+      // Timeout after 30 seconds
+      setTimeout(() => {
+        child.kill();
+        reject(new Error('Video info request timed out'));
+      }, 30000);
+    });
+
+    // Calculate estimated file size for selected quality
+    const duration = (videoInfo as any).duration || 0;
+    let estimatedSize = 0;
+
+    switch (quality) {
+      case '2160p':
+        estimatedSize = (videoInfo as any).filesize || Math.round(duration * 2000000 / 8);
+        break;
+      case '1440p':
+        estimatedSize = (videoInfo as any).filesize || Math.round(duration * 1200000 / 8);
+        break;
+      case '1080p':
+        estimatedSize = (videoInfo as any).filesize || Math.round(duration * 800000 / 8);
+        break;
+      case '720p':
+        estimatedSize = (videoInfo as any).filesize || Math.round(duration * 500000 / 8);
+        break;
+      case '480p':
+        estimatedSize = (videoInfo as any).filesize || Math.round(duration * 300000 / 8);
+        break;
+      case 'audio':
+        estimatedSize = Math.round(duration * 128000 / 8);
+        break;
+    }
+
+    // File size limits (in bytes)
+    const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
+    const WARN_FILE_SIZE = 500 * 1024 * 1024; // 500MB
+
+    if (estimatedSize > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: `File size too large (${Math.round(estimatedSize / (1024 * 1024))}MB). Maximum allowed size is ${Math.round(MAX_FILE_SIZE / (1024 * 1024))}MB.` },
+        { status: 400 }
+      );
+    }
+
+    if (estimatedSize > WARN_FILE_SIZE) {
+      console.warn(`Large file download initiated: ${Math.round(estimatedSize / (1024 * 1024))}MB`);
     }
 
     let formatString = '';
@@ -154,30 +246,17 @@ export async function POST(request: NextRequest) {
 
     const sessionId = randomUUID();
 
-    // Create session in MongoDB or fallback storage
-    let session: any;
-    if (isMongoDBAvailable) {
-      session = await DownloadSession.create({
-        sessionId,
-        url,
-        quality,
-        status: 'downloading',
-        progress: 0,
-        contentType,
-        filename,
-        tempFile,
-      });
-    } else {
-      session = {
-        id: sessionId,
-        status: 'downloading',
-        progress: 0,
-        contentType,
-        filename,
-        tempFile,
-      };
-      fallbackSessions.set(sessionId, session);
-    }
+    // Create session in MongoDB Atlas
+    const session = await DownloadSession.create({
+      sessionId,
+      url,
+      quality,
+      status: 'downloading',
+      progress: 0,
+      contentType,
+      filename,
+      tempFile,
+    });
 
     const args = [
       '-f', formatString,
@@ -217,14 +296,10 @@ export async function POST(request: NextRequest) {
             else if (simulationStep >= 4 && simulatedProgress < 90) simulatedProgress = 90;
 
             if (simulatedProgress > session.progress) {
-              if (isMongoDBAvailable) {
-                await DownloadSession.updateOne(
-                  { sessionId },
-                  { progress: simulatedProgress }
-                );
-              } else {
-                session.progress = simulatedProgress;
-              }
+              await DownloadSession.updateOne(
+                { sessionId },
+                { progress: simulatedProgress }
+              );
               console.log('Simulated progress:', simulatedProgress);
             }
           }
@@ -286,14 +361,10 @@ export async function POST(request: NextRequest) {
         if (newProgress !== session.progress) {
           newProgress = Math.min(newProgress, 100);
 
-          if (isMongoDBAvailable) {
-            await DownloadSession.updateOne(
-              { sessionId },
-              { progress: newProgress }
-            );
-          } else {
-            session.progress = newProgress;
-          }
+          await DownloadSession.updateOne(
+            { sessionId },
+            { progress: newProgress }
+          );
 
           // Reset simulation timer since we got real progress
           lastRealProgress = Date.now();
@@ -304,14 +375,10 @@ export async function POST(request: NextRequest) {
 
         // Force completion on certain outputs
         if (output.includes('Merging formats') || output.includes('Deleting original file')) {
-          if (isMongoDBAvailable) {
-            await DownloadSession.updateOne(
-              { sessionId },
-              { progress: 100 }
-            );
-          } else {
-            session.progress = 100;
-          }
+          await DownloadSession.updateOne(
+            { sessionId },
+            { progress: 100 }
+          );
           console.log('Forced completion progress to 100%');
         }
 
@@ -329,30 +396,20 @@ export async function POST(request: NextRequest) {
         }
 
         if (code === 0) {
-          if (isMongoDBAvailable) {
-            await DownloadSession.updateOne(
-              { sessionId },
-              { status: 'completed', progress: 100 }
-            );
-          } else {
-            session.status = 'completed';
-            session.progress = 100;
-          }
+          await DownloadSession.updateOne(
+            { sessionId },
+            { status: 'completed', progress: 100 }
+          );
           console.log('Download completed successfully');
         } else {
           const errorMsg = `Download failed with code ${code}`;
-          if (isMongoDBAvailable) {
-            await DownloadSession.updateOne(
-              { sessionId },
-              {
-                status: 'error',
-                error: errorMsg
-              }
-            );
-          } else {
-            session.status = 'error';
-            session.error = errorMsg;
-          }
+          await DownloadSession.updateOne(
+            { sessionId },
+            {
+              status: 'error',
+              error: errorMsg
+            }
+          );
           console.log('Download failed:', errorMsg);
           // Clean up temp file
           if (existsSync(tempFile)) {
@@ -377,18 +434,13 @@ export async function POST(request: NextRequest) {
         }
 
         console.log('yt-dlp spawn error:', error.message);
-        if (isMongoDBAvailable) {
-          await DownloadSession.updateOne(
-            { sessionId },
-            {
-              status: 'error',
-              error: error.message
-            }
-          );
-        } else {
-          session.status = 'error';
-          session.error = error.message;
-        }
+        await DownloadSession.updateOne(
+          { sessionId },
+          {
+            status: 'error',
+            error: error.message
+          }
+        );
         if (existsSync(tempFile)) {
           try {
             unlinkSync(tempFile);
