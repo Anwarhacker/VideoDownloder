@@ -232,22 +232,22 @@ export async function POST(request: NextRequest) {
 
     switch (quality) {
       case '2160p':
-        formatString = 'bestvideo[ext=mp4][height<=2160]+bestaudio[ext=m4a]/best[ext=mp4][height<=2160]';
+        formatString = 'best[height<=2160]';
         break;
       case '1440p':
-        formatString = 'bestvideo[ext=mp4][height<=1440]+bestaudio[ext=m4a]/best[ext=mp4][height<=1440]';
+        formatString = 'best[height<=1440]';
         break;
       case '1080p':
-        formatString = 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]';
+        formatString = 'best[height<=1080]';
         break;
       case '720p':
-        formatString = 'bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]';
+        formatString = 'best[height<=720]';
         break;
       case '480p':
-        formatString = 'bestvideo[ext=mp4][height<=480]+bestaudio[ext=m4a]/best[ext=mp4][height<=480]';
+        formatString = 'best[height<=480]';
         break;
       case 'audio':
-        formatString = 'bestaudio/best';
+        formatString = 'bestaudio';
         break;
       default:
         formatString = 'best';
@@ -256,18 +256,20 @@ export async function POST(request: NextRequest) {
     const contentType = quality === 'audio' ? 'audio/mpeg' : 'video/mp4';
     const fileExtension = quality === 'audio' ? 'mp3' : 'mp4';
     const filename = `download.${fileExtension}`;
-    const tempDir = tmpdir();
-    const tempBaseName = `download-${randomUUID()}`;
-    const tempFile = join(tempDir, `${tempBaseName}.${fileExtension}`);
 
-    console.log('Temp directory:', tempDir);
+    // Use a local downloads directory instead of system temp (better for containers)
+    const downloadsDir = join(process.cwd(), 'downloads');
+    const tempBaseName = `download-${randomUUID()}`;
+    const tempFile = join(downloadsDir, `${tempBaseName}.${fileExtension}`);
+
+    console.log('Downloads directory:', downloadsDir);
     console.log('Full temp file path:', tempFile);
 
-    // Ensure temp directory exists
+    // Ensure downloads directory exists
     const fs = require('fs');
-    if (!fs.existsSync(tempDir)) {
-      console.log('Creating temp directory');
-      fs.mkdirSync(tempDir, { recursive: true });
+    if (!fs.existsSync(downloadsDir)) {
+      console.log('Creating downloads directory');
+      fs.mkdirSync(downloadsDir, { recursive: true });
     }
 
     const sessionId = randomUUID();
@@ -469,11 +471,11 @@ export async function POST(request: NextRequest) {
         if (existsSync(tempFile)) {
           actualTempFile = tempFile;
         } else {
-          // Look for files in temp directory that start with our base name
-          const files = fs.readdirSync(tempDir).filter((file: string) => file.startsWith(tempBaseName));
+          // Look for files in downloads directory that start with our base name
+          const files = fs.readdirSync(downloadsDir).filter((file: string) => file.startsWith(tempBaseName));
           if (files.length > 0) {
             // Use the first matching file (should be the output file)
-            actualTempFile = join(tempDir, files[0]);
+            actualTempFile = join(downloadsDir, files[0]);
             console.log('Found output file:', actualTempFile);
           }
         }
@@ -546,17 +548,17 @@ export async function POST(request: NextRequest) {
         // Clean up any temp files with the base name
         const fs = require('fs');
         try {
-          const files = fs.readdirSync(tempDir).filter((file: string) => file.startsWith(tempBaseName));
+          const files = fs.readdirSync(downloadsDir).filter((file: string) => file.startsWith(tempBaseName));
           for (const file of files) {
             try {
-              unlinkSync(join(tempDir, file));
+              unlinkSync(join(downloadsDir, file));
               console.log('Cleaned up temp file due to spawn error:', file);
             } catch (err) {
               console.error('Failed to clean up temp file on error:', err);
             }
           }
         } catch (err) {
-          console.error('Failed to read temp directory for cleanup:', err);
+          console.error('Failed to read downloads directory for cleanup:', err);
         }
       } catch (updateError) {
         console.error('Error updating session on spawn error:', updateError);
