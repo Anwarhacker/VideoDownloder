@@ -12,16 +12,22 @@ import DownloadSession from '@/lib/models/DownloadSession';
 
 // Get yt-dlp command - try system PATH first, then local exe for development
 function getYtdlpCommand(): string {
-  // For production, assume yt-dlp is in PATH
-  // For development, use local exe
-  try {
-    // In development, check if local exe exists
-    const localPath = join(process.cwd(), 'yt-dlp.exe');
-    // For simplicity, use 'yt-dlp' for production, local path for dev
-    return process.env.NODE_ENV === 'production' ? 'yt-dlp' : localPath;
-  } catch {
-    return 'yt-dlp';
+  // For development, check for a local executable first
+  if (process.env.NODE_ENV !== 'production') {
+    const localPathExe = join(process.cwd(), 'yt-dlp.exe');
+    if (existsSync(localPathExe)) {
+      console.log('Using local yt-dlp.exe');
+      return localPathExe;
+    }
+    const localPath = join(process.cwd(), 'yt-dlp');
+    if (existsSync(localPath)) {
+      console.log('Using local yt-dlp');
+      return localPath;
+    }
   }
+  // For production or if local executable is not found, assume it's in the PATH
+  console.log('Using yt-dlp from PATH');
+  return 'yt-dlp';
 }
 
 export const dynamic = 'force-dynamic';
@@ -243,7 +249,8 @@ export async function POST(request: NextRequest) {
     const fileExtension = quality === 'audio' ? 'mp3' : 'mp4';
     const filename = `download.${fileExtension}`;
     const tempDir = tmpdir();
-    const tempFile = join(tempDir, `download-${randomUUID()}.${fileExtension}`);
+    const tempFilename = `download-${randomUUID()}.${fileExtension}`;
+    const tempFile = join(tempDir, tempFilename);
 
     console.log('Temp directory:', tempDir);
     console.log('Full temp file path:', tempFile);
@@ -270,10 +277,12 @@ export async function POST(request: NextRequest) {
     });
 
     const args = [
-      '-f', formatString,
-      '-o', tempFile,
+      '-f',
+      formatString,
+      '-o',
+      tempFilename, // Use relative path for output
       '--no-playlist',
-      url
+      url,
     ];
 
     if (quality === 'audio') {
@@ -282,12 +291,14 @@ export async function POST(request: NextRequest) {
 
     const ytdlpCmd = getYtdlpCommand();
     console.log('Starting yt-dlp with command:', ytdlpCmd, args.join(' '));
+    console.log('Working directory:', tempDir);
     console.log('Output file will be:', tempFile);
 
     // Small delay to ensure session is saved
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    const ytdlp = spawn(ytdlpCmd, args);
+    // Execute from temp directory to prevent path issues
+    const ytdlp = spawn(ytdlpCmd, args, { cwd: tempDir });
 
     // Progress simulation timer for fallback
     let progressTimer: NodeJS.Timeout | null = null;
