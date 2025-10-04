@@ -18,11 +18,12 @@ COPY package*.json ./
 # Install dependencies
 RUN npm ci
 
-# Copy environment file for build
-COPY .env.local ./
-
 # Copy source code
 COPY . .
+
+# Set a dummy MONGODB_URI for build-time
+ARG MONGODB_URI="mongodb://dummy-uri"
+ENV MONGODB_URI=$MONGODB_URI
 
 # Build the application
 RUN npm run build
