@@ -218,31 +218,42 @@ export async function POST(request: NextRequest) {
 
     switch (quality) {
       case '2160p':
-        formatString = 'bestvideo[height<=2160]+bestaudio/best[height<=2160]';
+        formatString = 'best[height<=2160]';
         break;
       case '1440p':
-        formatString = 'bestvideo[height<=1440]+bestaudio/best[height<=1440]';
+        formatString = 'best[height<=1440]';
         break;
       case '1080p':
-        formatString = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]';
+        formatString = 'best[height<=1080]';
         break;
       case '720p':
-        formatString = 'bestvideo[height<=720]+bestaudio/best[height<=720]';
+        formatString = 'best[height<=720]';
         break;
       case '480p':
-        formatString = 'bestvideo[height<=480]+bestaudio/best[height<=480]';
+        formatString = 'best[height<=480]';
         break;
       case 'audio':
-        formatString = 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best';
+        formatString = 'bestaudio/best';
         break;
       default:
-        formatString = 'bestvideo+bestaudio/best';
+        formatString = 'best';
     }
 
     const contentType = quality === 'audio' ? 'audio/mpeg' : 'video/mp4';
     const fileExtension = quality === 'audio' ? 'mp3' : 'mp4';
     const filename = `download.${fileExtension}`;
-    const tempFile = join(tmpdir(), `download-${randomUUID()}.${fileExtension}`);
+    const tempDir = tmpdir();
+    const tempFile = join(tempDir, `download-${randomUUID()}.${fileExtension}`);
+
+    console.log('Temp directory:', tempDir);
+    console.log('Full temp file path:', tempFile);
+
+    // Ensure temp directory exists
+    const fs = require('fs');
+    if (!fs.existsSync(tempDir)) {
+      console.log('Creating temp directory');
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
 
     const sessionId = randomUUID();
 
@@ -266,12 +277,16 @@ export async function POST(request: NextRequest) {
     ];
 
     if (quality === 'audio') {
-      args.push('--extract-audio', '--audio-format', 'mp3', '--audio-quality', '0', '--audio-codec', 'libmp3lame');
-    } else {
-      args.push('--merge-output-format', 'mp4');
+      args.push('--extract-audio', '--audio-format', 'mp3');
     }
 
     const ytdlpCmd = getYtdlpCommand();
+    console.log('Starting yt-dlp with command:', ytdlpCmd, args.join(' '));
+    console.log('Output file will be:', tempFile);
+
+    // Small delay to ensure session is saved
+    await new Promise(resolve => setTimeout(resolve, 500));
+
     const ytdlp = spawn(ytdlpCmd, args);
 
     // Progress simulation timer for fallback
@@ -389,20 +404,37 @@ export async function POST(request: NextRequest) {
 
     ytdlp.on('close', async (code) => {
       try {
+        console.log('yt-dlp process closed with code:', code);
+
         // Clean up progress timer
         if (progressTimer) {
           clearInterval(progressTimer);
           progressTimer = null;
         }
 
-        if (code === 0) {
+        // Check if file exists
+        const fileExists = existsSync(tempFile);
+        console.log('Output file exists:', fileExists);
+
+        if (fileExists) {
+          const stats = await new Promise((resolve, reject) => {
+            const fs = require('fs');
+            fs.stat(tempFile, (err: any, stats: any) => {
+              if (err) reject(err);
+              else resolve(stats);
+            });
+          });
+          console.log('Output file size:', (stats as any).size, 'bytes');
+        }
+
+        if (code === 0 && fileExists) {
           await DownloadSession.updateOne(
             { sessionId },
             { status: 'completed', progress: 100 }
           );
           console.log('Download completed successfully');
         } else {
-          const errorMsg = `Download failed with code ${code}`;
+          const errorMsg = `Download failed with code ${code}${fileExists ? '' : ' (no output file)'}`;
           await DownloadSession.updateOne(
             { sessionId },
             {
@@ -427,23 +459,26 @@ export async function POST(request: NextRequest) {
 
     ytdlp.on('error', async (error) => {
       try {
+        console.log('yt-dlp spawn error:', error.message);
+        console.log('Error details:', error);
+
         // Clean up progress timer
         if (progressTimer) {
           clearInterval(progressTimer);
           progressTimer = null;
         }
 
-        console.log('yt-dlp spawn error:', error.message);
         await DownloadSession.updateOne(
           { sessionId },
           {
             status: 'error',
-            error: error.message
+            error: `Process error: ${error.message}`
           }
         );
         if (existsSync(tempFile)) {
           try {
             unlinkSync(tempFile);
+            console.log('Cleaned up temp file due to spawn error');
           } catch (err) {
             console.error('Failed to clean up temp file on error:', err);
           }

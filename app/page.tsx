@@ -162,7 +162,7 @@ export default function Home() {
               status: "downloading",
               progress: progressData.progress,
             });
-            setTimeout(pollProgress, 500); // Poll again in 0.5 seconds for more responsive updates
+            setTimeout(pollProgress, 1000); // Poll again in 1 second
           }
         } catch (error: any) {
           setDownloadState({
