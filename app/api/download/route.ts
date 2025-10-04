@@ -224,19 +224,19 @@ export async function POST(request: NextRequest) {
 
     switch (quality) {
       case '2160p':
-        formatString = 'bestvideo[height<=2160]+bestaudio/best[height<=2160]';
+        formatString = 'bestvideo[ext=mp4][height<=2160]+bestaudio[ext=m4a]/best[ext=mp4][height<=2160]';
         break;
       case '1440p':
-        formatString = 'bestvideo[height<=1440]+bestaudio/best[height<=1440]';
+        formatString = 'bestvideo[ext=mp4][height<=1440]+bestaudio[ext=m4a]/best[ext=mp4][height<=1440]';
         break;
       case '1080p':
-        formatString = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]';
+        formatString = 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]';
         break;
       case '720p':
-        formatString = 'bestvideo[height<=720]+bestaudio/best[height<=720]';
+        formatString = 'bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]';
         break;
       case '480p':
-        formatString = 'bestvideo[height<=480]+bestaudio/best[height<=480]';
+        formatString = 'bestvideo[ext=mp4][height<=480]+bestaudio[ext=m4a]/best[ext=mp4][height<=480]';
         break;
       case 'audio':
         formatString = 'bestaudio/best';
@@ -249,8 +249,8 @@ export async function POST(request: NextRequest) {
     const fileExtension = quality === 'audio' ? 'mp3' : 'mp4';
     const filename = `download.${fileExtension}`;
     const tempDir = tmpdir();
-    const tempFilename = `download-${randomUUID()}.${fileExtension}`;
-    const tempFile = join(tempDir, tempFilename);
+    const tempBaseName = `download-${randomUUID()}`;
+    const tempFile = join(tempDir, `${tempBaseName}.${fileExtension}`);
 
     console.log('Temp directory:', tempDir);
     console.log('Full temp file path:', tempFile);
@@ -280,7 +280,7 @@ export async function POST(request: NextRequest) {
       '-f',
       formatString,
       '-o',
-      tempFilename, // Use relative path for output
+      tempBaseName, // Use base name without extension so yt-dlp can choose appropriate extension
       '--no-playlist',
       url,
     ];
@@ -453,14 +453,24 @@ export async function POST(request: NextRequest) {
           progressTimer = null;
         }
 
-        // Check if file exists
-        const fileExists = existsSync(tempFile);
+        // Check if file exists - yt-dlp might add extensions, so look for files starting with tempBaseName
+        let actualTempFile = tempFile;
+        const fs = require('fs');
+
+        // List files in temp directory that start with our base name
+        const files = fs.readdirSync(tempDir).filter((file: string) => file.startsWith(tempBaseName));
+        if (files.length > 0) {
+          // Use the first matching file (should be the output file)
+          actualTempFile = join(tempDir, files[0]);
+          console.log('Found output file:', actualTempFile);
+        }
+
+        const fileExists = existsSync(actualTempFile);
         console.log('Output file exists:', fileExists);
 
         if (fileExists) {
           const stats = await new Promise((resolve, reject) => {
-            const fs = require('fs');
-            fs.stat(tempFile, (err: any, stats: any) => {
+            fs.stat(actualTempFile, (err: any, stats: any) => {
               if (err) reject(err);
               else resolve(stats);
             });
@@ -469,9 +479,10 @@ export async function POST(request: NextRequest) {
         }
 
         if ((code === 0 || code === null) && fileExists) {
+          // Update session with actual file path
           await DownloadSession.updateOne(
             { sessionId },
-            { status: 'completed', progress: 100 }
+            { status: 'completed', progress: 100, tempFile: actualTempFile }
           );
           console.log('Download completed successfully');
         } else {
@@ -485,9 +496,9 @@ export async function POST(request: NextRequest) {
           );
           console.log('Download failed:', errorMsg);
           // Clean up temp file
-          if (existsSync(tempFile)) {
+          if (existsSync(actualTempFile)) {
             try {
-              unlinkSync(tempFile);
+              unlinkSync(actualTempFile);
             } catch (err) {
               console.error('Failed to clean up temp file on error:', err);
             }
@@ -519,10 +530,13 @@ export async function POST(request: NextRequest) {
             error: `Process error: ${error.message}`
           }
         );
-        if (existsSync(tempFile)) {
+        // Clean up any temp files with the base name
+        const fs = require('fs');
+        const files = fs.readdirSync(tempDir).filter((file: string) => file.startsWith(tempBaseName));
+        for (const file of files) {
           try {
-            unlinkSync(tempFile);
-            console.log('Cleaned up temp file due to spawn error');
+            unlinkSync(join(tempDir, file));
+            console.log('Cleaned up temp file due to spawn error:', file);
           } catch (err) {
             console.error('Failed to clean up temp file on error:', err);
           }
