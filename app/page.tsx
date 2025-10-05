@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -27,6 +27,15 @@ import {
   CircleAlert as AlertCircle,
   CircleCheck as CheckCircle2,
   Info,
+  History,
+  X,
+  Copy,
+  ExternalLink,
+  Zap,
+  Shield,
+  Globe,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import {
   formatFileSize,
@@ -52,6 +61,15 @@ interface DownloadState {
   error?: string;
 }
 
+interface DownloadHistory {
+  id: string;
+  title: string;
+  url: string;
+  quality: string;
+  size: number;
+  date: Date;
+}
+
 export default function Home() {
   const [url, setUrl] = useState("");
   const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
@@ -60,15 +78,41 @@ export default function Home() {
     status: "idle",
     progress: 0,
   });
+  const [downloadHistory, setDownloadHistory] = useState<DownloadHistory[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showMoreInfo, setShowMoreInfo] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Load download history from localStorage on mount
+  useEffect(() => {
+    const savedHistory = localStorage.getItem("downloadHistory");
+    if (savedHistory) {
+      try {
+        setDownloadHistory(JSON.parse(savedHistory));
+      } catch (e) {
+        console.error("Failed to parse download history", e);
+      }
+    }
+  }, []);
+
+  // Save download history to localStorage when it changes
+  useEffect(() => {
+    if (downloadHistory.length > 0) {
+      localStorage.setItem("downloadHistory", JSON.stringify(downloadHistory));
+    }
+  }, [downloadHistory]);
 
   const handleFetchInfo = async () => {
     if (!url.trim()) {
       toast.error("Please enter a video URL");
+      inputRef.current?.focus();
       return;
     }
 
     if (!validateUrl(url)) {
       toast.error("Invalid URL or unsupported platform");
+      inputRef.current?.focus();
       return;
     }
 
@@ -145,13 +189,24 @@ export default function Home() {
             const downloadUrl = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = downloadUrl;
-            a.download = `download.${
+            a.download = `${videoInfo.title}.${
               selectedQuality === "audio" ? "mp3" : "mp4"
             }`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(downloadUrl);
+
+            // Add to download history
+            const newHistoryItem: DownloadHistory = {
+              id,
+              title: videoInfo.title,
+              url,
+              quality: selectedQuality,
+              size: videoInfo.estimatedSizes[selectedQuality],
+              date: new Date(),
+            };
+            setDownloadHistory((prev) => [newHistoryItem, ...prev].slice(0, 10)); // Keep only last 10 items
 
             setDownloadState({ status: "completed", progress: 100 });
             toast.success("Download completed successfully!");
@@ -186,6 +241,26 @@ export default function Home() {
     setVideoInfo(null);
     setDownloadState({ status: "idle", progress: 0 });
     setSelectedQuality("1080p");
+    inputRef.current?.focus();
+  };
+
+  const handleCopyUrl = () => {
+    navigator.clipboard.writeText(url);
+    setUrlCopied(true);
+    toast.success("URL copied to clipboard");
+    setTimeout(() => setUrlCopied(false), 2000);
+  };
+
+  const handleHistoryItemClick = (item: DownloadHistory) => {
+    setUrl(item.url);
+    setShowHistory(false);
+    handleFetchInfo();
+  };
+
+  const handleClearHistory = () => {
+    setDownloadHistory([]);
+    localStorage.removeItem("downloadHistory");
+    toast.success("Download history cleared");
   };
 
   return (
@@ -214,32 +289,101 @@ export default function Home() {
 
         <Card className="shadow-2xl border-0 bg-white/90 backdrop-blur-md hover:shadow-3xl transition-all duration-300 hover:-translate-y-1 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-600">
           <CardHeader className="bg-gradient-to-r from-blue-50/50 to-cyan-50/50 border-b border-slate-100/50">
-            <CardTitle className="text-2xl flex items-center gap-3 text-slate-800">
-              <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg shadow-lg">
-                <Download className="w-6 h-6 text-white" />
+            <div className="flex justify-between items-center">
+              <div>
+                <CardTitle className="text-2xl flex items-center gap-3 text-slate-800">
+                  <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg shadow-lg">
+                    <Download className="w-6 h-6 text-white" />
+                  </div>
+                  Download Video
+                </CardTitle>
+                <CardDescription className="text-slate-600 text-base mt-2">
+                  Enter a video URL and select your preferred quality for instant
+                  download
+                </CardDescription>
               </div>
-              Download Video
-            </CardTitle>
-            <CardDescription className="text-slate-600 text-base">
-              Enter a video URL and select your preferred quality for instant
-              download
-            </CardDescription>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowHistory(!showHistory)}
+                className="text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200"
+              >
+                <History className="w-5 h-5 mr-1" />
+                History
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-6">
+            {showHistory && downloadHistory.length > 0 && (
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-medium text-slate-700">Recent Downloads</h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleClearHistory}
+                    className="text-slate-500 hover:text-red-600 hover:bg-red-50 transition-all duration-200"
+                  >
+                    <X className="w-4 h-4 mr-1" />
+                    Clear
+                  </Button>
+                </div>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {downloadHistory.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between p-2 bg-white rounded-md hover:bg-blue-50 cursor-pointer transition-colors duration-200"
+                      onClick={() => handleHistoryItemClick(item)}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-700 truncate">
+                          {item.title}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {getQualityLabel(item.quality)} •{" "}
+                          {formatFileSize(item.size)} •{" "}
+                          {new Date(item.date).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <ExternalLink className="w-4 h-4 text-slate-400 ml-2" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row gap-3">
-                <Input
-                  type="url"
-                  placeholder="Paste video URL here (YouTube, Vimeo, etc.)"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && handleFetchInfo()}
-                  disabled={
-                    downloadState.status === "fetching" ||
-                    downloadState.status === "downloading"
-                  }
-                  className="text-base h-12 flex-1 border-slate-300 focus:border-blue-500 focus:ring-blue-500/20 shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                />
+                <div className="relative flex-1">
+                  <Input
+                    ref={inputRef}
+                    type="url"
+                    placeholder="Paste video URL here (YouTube, Vimeo, etc.)"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    onKeyPress={(e) => e.key === "Enter" && handleFetchInfo()}
+                    disabled={
+                      downloadState.status === "fetching" ||
+                      downloadState.status === "downloading"
+                    }
+                    className="text-base h-12 flex-1 border-slate-300 focus:border-blue-500 focus:ring-blue-500/20 shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed pr-10"
+                  />
+                  {url && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-1 top-1/2 transform -translate-y-1/2 h-10 w-10 p-0 text-slate-400 hover:text-blue-600"
+                      onClick={handleCopyUrl}
+                      disabled={urlCopied}
+                    >
+                      {urlCopied ? (
+                        <CheckCircle2 className="w-4 h-4" />
+                      ) : (
+                        <Copy className="w-4 h-4" />
+                      )}
+                    </Button>
+                  )}
+                </div>
                 <Button
                   onClick={handleFetchInfo}
                   disabled={
@@ -264,25 +408,25 @@ export default function Home() {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-xs bg-blue-50 border-blue-200 text-blue-700">
                   YouTube
                 </Badge>
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-xs bg-cyan-50 border-cyan-200 text-cyan-700">
                   Vimeo
                 </Badge>
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-xs bg-teal-50 border-teal-200 text-teal-700">
                   Dailymotion
                 </Badge>
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-xs bg-slate-100 border-slate-200 text-slate-700">
                   Twitter
                 </Badge>
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-xs bg-slate-100 border-slate-200 text-slate-700">
                   TikTok
                 </Badge>
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-xs bg-slate-100 border-slate-200 text-slate-700">
                   Instagram
                 </Badge>
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-xs bg-gradient-to-r from-blue-50 to-cyan-50 border-blue-200 text-blue-700">
                   +200 more
                 </Badge>
               </div>
@@ -353,6 +497,31 @@ export default function Home() {
                           )}
                           ). Download may take several minutes depending on your
                           connection speed.
+                        </p>
+                      </div>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowMoreInfo(!showMoreInfo)}
+                      className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-0 h-auto"
+                    >
+                      {showMoreInfo ? (
+                        <>
+                          <ChevronUp className="w-4 h-4 mr-1" />
+                          Show less
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="w-4 h-4 mr-1" />
+                          Show more
+                        </>
+                      )}
+                    </Button>
+                    {showMoreInfo && (
+                      <div className="p-3 bg-slate-50 rounded-lg animate-in fade-in slide-in-from-top-2 duration-300">
+                        <p className="text-sm text-slate-600 line-clamp-3">
+                          {videoInfo.description}
                         </p>
                       </div>
                     )}
@@ -454,7 +623,7 @@ export default function Home() {
                     onClick={handleDownload}
                     disabled={downloadState.status === "downloading"}
                     size="lg"
-                    className="flex-1 h-12  py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                    className="flex-1 h-12 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                   >
                     {downloadState.status === "downloading" ? (
                       <>
@@ -491,16 +660,16 @@ export default function Home() {
           <Card className="border-0 shadow-xl bg-white/90 backdrop-blur-md hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group animate-in fade-in slide-in-from-left-4 duration-500 delay-800">
             <CardHeader className="pb-3">
               <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300">
-                <Video className="w-6 h-6 text-white" />
+                <Zap className="w-6 h-6 text-white" />
               </div>
               <CardTitle className="text-lg text-slate-800 group-hover:text-blue-700 transition-colors">
-                High Quality
+                Lightning Fast
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-slate-600 leading-relaxed">
-                Download videos up to 4K resolution with the best available
-                quality and crystal-clear audio
+                Experience blazing-fast downloads with our optimized servers and
+                advanced technology
               </p>
             </CardContent>
           </Card>
@@ -508,16 +677,16 @@ export default function Home() {
           <Card className="border-0 shadow-xl bg-white/90 backdrop-blur-md hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group animate-in fade-in slide-in-from-bottom-4 duration-500 delay-900">
             <CardHeader className="pb-3">
               <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-teal-500 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300">
-                <Download className="w-6 h-6 text-white" />
+                <Globe className="w-6 h-6 text-white" />
               </div>
               <CardTitle className="text-lg text-slate-800 group-hover:text-cyan-700 transition-colors">
-                Multiple Platforms
+                Universal Support
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-slate-600 leading-relaxed">
-                Support for YouTube, Vimeo, Dailymotion, TikTok, Instagram, and
-                200+ platforms worldwide
+                Download from YouTube, Vimeo, TikTok, Instagram, and 200+ platforms
+                worldwide
               </p>
             </CardContent>
           </Card>
@@ -525,16 +694,16 @@ export default function Home() {
           <Card className="border-0 shadow-xl bg-white/90 backdrop-blur-md hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group animate-in fade-in slide-in-from-right-4 duration-500 delay-1000">
             <CardHeader className="pb-3">
               <div className="w-12 h-12 bg-gradient-to-r from-teal-500 to-green-500 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300">
-                <CheckCircle2 className="w-6 h-6 text-white" />
+                <Shield className="w-6 h-6 text-white" />
               </div>
               <CardTitle className="text-lg text-slate-800 group-hover:text-teal-700 transition-colors">
-                Fast & Secure
+                Privacy First
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-slate-600 leading-relaxed">
-                Lightning-fast downloads with secure processing, no data
-                storage, and complete privacy protection
+                Your privacy is our priority. No data storage, complete
+                anonymity, and secure processing
               </p>
             </CardContent>
           </Card>
