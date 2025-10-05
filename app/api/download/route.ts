@@ -145,7 +145,18 @@ export async function POST(request: NextRequest) {
     console.log('Getting video info with command:', ytdlpCmdInfo);
 
     const videoInfo = await new Promise((resolve, reject) => {
-      const child = spawn(ytdlpCmdInfo, ['--dump-json', '--no-playlist', url], {
+      const browser = process.env.YT_DLP_BROWSER;
+      const args = ['--dump-json', '--no-playlist'];
+      if (browser) {
+        args.push('--cookies-from-browser', browser);
+        const userDataDir = process.env.YT_DLP_USER_DATA_DIR;
+        if (userDataDir) {
+          args.push('--user-data-dir', userDataDir);
+        }
+      }
+      args.push(url);
+
+      const child = spawn(ytdlpCmdInfo, args, {
         stdio: ['pipe', 'pipe', 'pipe']
       });
 
@@ -292,12 +303,22 @@ export async function POST(request: NextRequest) {
       '-o',
       tempFile, // Use full path for output
       '--no-playlist',
-      url,
     ];
+
+    const browser = process.env.YT_DLP_BROWSER;
+    if (browser) {
+      args.push('--cookies-from-browser', browser);
+      const userDataDir = process.env.YT_DLP_USER_DATA_DIR;
+      if (userDataDir) {
+        args.push('--user-data-dir', userDataDir);
+      }
+    }
 
     if (quality === 'audio') {
       args.push('--extract-audio', '--audio-format', 'mp3');
     }
+
+    args.push(url);
 
     const ytdlpCmd = getYtdlpCommand();
     console.log('Starting yt-dlp with command:', ytdlpCmd, args.join(' '));

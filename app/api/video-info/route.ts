@@ -48,7 +48,21 @@ export async function POST(request: NextRequest) {
     }
 
     const ytdlpCmd = getYtdlpCommand();
-    const command = `${ytdlpCmd} --dump-json --no-playlist "${url}"`;
+
+    // Get browser from environment variables
+    const browser = process.env.YT_DLP_BROWSER;
+
+    let command = `${ytdlpCmd} --dump-json --no-playlist`;
+
+    if (browser) {
+      command += ` --cookies-from-browser ${browser}`;
+      const userDataDir = process.env.YT_DLP_USER_DATA_DIR;
+      if (userDataDir) {
+        command += ` --user-data-dir "${userDataDir}"`;
+      }
+    }
+
+    command += ` "${url}"`;
 
     const { stdout, stderr } = await execPromise(command, {
       timeout: 30000,
