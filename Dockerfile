@@ -1,38 +1,56 @@
-FROM node:18-alpine
+# ---------- 1. Base Stage ----------
+FROM node:18-alpine AS base
 
-# Install dependencies
+# Set working directory
+WORKDIR /app
+
+# Install OS dependencies
 RUN apk add --no-cache \
     ffmpeg \
     python3 \
     wget
 
-# Install the latest version of yt-dlp
+# Install yt-dlp
 RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && \
     chmod a+rx /usr/local/bin/yt-dlp
 
-WORKDIR /app
-
-# Copy package files
+# Copy dependency files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci
+# Install dependencies (faster and reproducible)
+RUN npm ci --omit=dev
+
+# ---------- 2. Build Stage ----------
+FROM base AS build
 
 # Copy source code
 COPY . .
 
-# Set a dummy MONGODB_URI for build-time
-ARG MONGODB_URI="mongodb://dummy-uri"
-ENV MONGODB_URI=$MONGODB_URI
+# Set build-time environment variable
+ARG MONGODB_URI
+ENV MONGODB_URI=${MONGODB_URI}
 
-# Build the application
+# Build the app
 RUN npm run build
 
-# Expose port
+# ---------- 3. Production Stage ----------
+FROM node:18-alpine AS production
+
+WORKDIR /app
+
+# Copy only necessary runtime files from build
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/package*.json ./
+
+# Install only production dependencies
+RUN npm prune --omit=dev
+
+# Expose the app port
 EXPOSE 3000
 
-# Set environment to production
+# Set environment
 ENV NODE_ENV=production
 
-# Start the application
+# Start the app
 CMD ["npm", "start"]
