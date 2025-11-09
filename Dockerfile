@@ -40,7 +40,7 @@ WORKDIR /app
 
 # Copy only necessary runtime files from build
 COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
+COPY --from=build /app/.next ./.next
 COPY --from=build /app/package*.json ./
 
 # Install only production dependencies
