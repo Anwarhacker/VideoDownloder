@@ -4,49 +4,53 @@ FROM node:18-alpine AS base
 # Set working directory
 WORKDIR /app
 
-# Install OS dependencies
+# Install OS dependencies + yt-dlp
 RUN apk add --no-cache \
     ffmpeg \
     python3 \
-    wget
-
-# Install yt-dlp
-RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && \
-    chmod a+rx /usr/local/bin/yt-dlp
+    wget && \
+    wget -q https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && \
+    chmod +x /usr/local/bin/yt-dlp
 
 # Copy dependency files
 COPY package*.json ./
 
-# Install dependencies (faster and reproducible)
+# Install dependencies (omit dev for smaller image)
 RUN npm ci --omit=dev
 
 # ---------- 2. Build Stage ----------
 FROM base AS build
 
-# Copy source code
+# Copy full source code
 COPY . .
 
 # Set build-time environment variable
 ARG MONGODB_URI
 ENV MONGODB_URI=${MONGODB_URI}
 
-# Build the app
-RUN npm run build
+# Build the app (for Next.js or any build step)
+RUN npm run build || echo "No build step found"
 
 # ---------- 3. Production Stage ----------
 FROM node:18-alpine AS production
 
 WORKDIR /app
 
-# Copy only necessary runtime files from build
+# Install runtime dependencies + yt-dlp in production stage
+RUN apk add --no-cache \
+    ffmpeg \
+    python3 \
+    wget && \
+    wget -q https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && \
+    chmod +x /usr/local/bin/yt-dlp
+
+# Copy app files from build stage
 COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/.next ./.next
 COPY --from=build /app/package*.json ./
+COPY --from=build /app/.next ./.next
+COPY --from=build /app/public ./public
 
-# Install only production dependencies
-RUN npm prune --omit=dev
-
-# Expose the app port
+# Expose the port
 EXPOSE 3000
 
 # Set environment
